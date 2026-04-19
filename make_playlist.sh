@@ -27,14 +27,18 @@ if [ ! -f "$PYTHON_BIN" ]; then
     exit 1
 fi
 
+PARENT_DIR=$(dirname "$TARGET_DIR")
+
 # --- 3. 実行 ---
 echo "プレイリストを作成中: $TARGET_DIR"
+
+# 親ディレクトリに移動してから実行することで、出力ファイルを親ディレクトリ配下に作成します
+cd "$PARENT_DIR" || exit 1
 "$PYTHON_BIN" "$PY_SCRIPT" "$TARGET_DIR"
 
 # --- 4. 実行結果の確認とVLC起動オプション ---
 if [ $? -eq 0 ]; then
-    # 作成されたはずのファイル名（ディレクトリ名.xspf）を推測
-    PLAYLIST_FILE="$(basename "$TARGET_DIR").xspf"
+    PLAYLIST_FILE="$PARENT_DIR/$(basename "$TARGET_DIR").xspf"
     
     echo "---------------------------------------"
     echo "完了しました: $PLAYLIST_FILE"

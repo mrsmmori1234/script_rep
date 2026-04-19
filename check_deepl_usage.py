@@ -5,7 +5,7 @@ def check_usage():
     api_key = os.getenv('DEEPL_API_KEY')
     
     if not api_key:
-        print("Error: 環境変数 'DEEPL_API_KEY' が設定されていません。")
+        print("Error: 'DEEPL_API_KEY' is not set")
         return
 
     url = "https://api-free.deepl.com/v2/usage"
