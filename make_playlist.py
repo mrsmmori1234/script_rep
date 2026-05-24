@@ -3,8 +3,10 @@ import os
 import sys
 import xml.etree.ElementTree as ET
 import urllib.parse
+import random
+import argparse
 
-def generate_xspf(target_dir):
+def generate_xspf(target_dir, shuffle=False):
     # 絶対パスを取得
     abs_target = os.path.abspath(target_dir)
     
@@ -17,6 +19,9 @@ def generate_xspf(target_dir):
     if not media_files:
         print("No media files found.")
         return
+
+    if shuffle:
+        random.shuffle(media_files)
 
     # XMLの構築
     playlist = ET.Element("playlist", version="1", xmlns="http://xspf.org/ns/0/")
@@ -54,7 +59,9 @@ def generate_xspf(target_dir):
     print(f"Playlist created for Windows VLC: {output_filename}")
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        generate_xspf(sys.argv[1])
-    else:
-        print("Usage: python3 make_playlist.py [directory]")
+    parser = argparse.ArgumentParser(description="Generate an XSPF playlist from a directory.")
+    parser.add_argument("directory", help="The directory containing media files.")
+    parser.add_argument("-r", "--random", action="store_true", help="Shuffle the playlist order.")
+    
+    args = parser.parse_args()
+    generate_xspf(args.directory, shuffle=args.random)
