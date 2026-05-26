@@ -10,11 +10,31 @@ PY_SCRIPT="$SCRIPT_DIR/make_playlist.py"
 
 # --- 1. 引数チェック ---
 if [ $# -eq 0 ]; then
-    echo "使用法: $0 [ターゲットディレクトリ]"
+    echo "使用法: $0 [-r] [ターゲットディレクトリ]"
     exit 1
 fi
 
-TARGET_DIR=$(realpath "$1")
+SHUFFLE_OPT=""
+TARGET_DIR_INPUT=""
+
+for arg in "$@"; do
+    case $arg in
+        -r|--random)
+            SHUFFLE_OPT="-r"
+            ;;
+        *)
+            if [ -z "$TARGET_DIR_INPUT" ]; then
+                TARGET_DIR_INPUT="$arg"
+            fi
+            ;;
+    esac
+done
+
+if [ -z "$TARGET_DIR_INPUT" ]; then
+    echo "使用法: $0 [-r] [ターゲットディレクトリ]"
+    exit 1
+fi
+TARGET_DIR=$(realpath "$TARGET_DIR_INPUT") 2>/dev/null || { echo "エラー: パスを解決できません"; exit 1; }
 
 # --- 2. バリデーション ---
 if [ ! -d "$TARGET_DIR" ]; then
@@ -34,7 +54,8 @@ echo "プレイリストを作成中: $TARGET_DIR"
 
 # 親ディレクトリに移動してから実行することで、出力ファイルを親ディレクトリ配下に作成します
 cd "$PARENT_DIR" || exit 1
-"$PYTHON_BIN" "$PY_SCRIPT" "$TARGET_DIR"
+"$PYTHON_BIN" "$PY_SCRIPT" "$TARGET_DIR" $SHUFFLE_OPT 2>/dev/null
+"$PYTHON_BIN" "$PY_SCRIPT" "$TARGET_DIR" $SHUFFLE_OPT
 
 # --- 4. 実行結果の確認とVLC起動オプション ---
 if [ $? -eq 0 ]; then
@@ -54,3 +75,4 @@ else
     echo "エラーが発生しました。"
     exit 1
 fi
+exit $?

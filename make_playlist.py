@@ -55,8 +55,12 @@ def generate_xspf(target_dir, shuffle=False):
     output_filename = f"{os.path.basename(os.path.normpath(abs_target))}.xspf"
     tree = ET.ElementTree(playlist)
     ET.indent(tree, space="    ")
-    tree.write(output_filename, encoding="utf-8", xml_declaration=True)
-    print(f"Playlist created for Windows VLC: {output_filename}")
+    try:
+        tree.write(output_filename, encoding="utf-8", xml_declaration=True)
+        print(f"Playlist created for Windows VLC: {output_filename}")
+    except IOError as e:
+        print(f"Error: Could not write to {output_filename}. The file might be locked by another application.")
+        sys.exit(1)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate an XSPF playlist from a directory.")
