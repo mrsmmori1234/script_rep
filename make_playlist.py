@@ -21,7 +21,11 @@ def generate_xspf(target_dir, shuffle=False):
         return
 
     if shuffle:
-        random.shuffle(media_files)
+        # より質の高いランダム性を確保するため、OSレベルの乱数生成器 (SystemRandom) を使用します
+        rng = random.SystemRandom()
+        # 念のため2回シャッフルすることで、混ざり具合の「偏り」をさらに抑えます
+        rng.shuffle(media_files)
+        rng.shuffle(media_files)
 
     # XMLの構築
     playlist = ET.Element("playlist", version="1", xmlns="http://xspf.org/ns/0/")

@@ -11,7 +11,7 @@ def split_mp4_and_srt(video_path, srt_path, num_splits):
     video.close() # Close it immediately to free the file lock
     
     # 2. Load subtitles
-    subs = pysrt.open(srt_path, encoding='utf-8')
+    subs = pysrt.open(srt_path, encoding='utf-8') if srt_path and os.path.exists(srt_path) else None
     
     base_name, _ = os.path.splitext(video_path)
     
@@ -43,19 +43,20 @@ def split_mp4_and_srt(video_path, srt_path, num_splits):
         subprocess.run(ffmpeg_cmd, check=True)
         
         # --- Subtitle Splitting and Time Shifting ---
-        output_srt_path = f"{base_name}_part{part_num}.srt"
-        
-        start_srt_time = pysrt.SubRipTime(milliseconds=int(start_time * 1000))
-        end_srt_time = pysrt.SubRipTime(milliseconds=int(end_time * 1000))
-        
-        part_subs = subs.slice(starts_after=start_srt_time, ends_before=end_srt_time)
-        
-        for sub in part_subs:
-            sub.start -= start_srt_time
-            sub.end -= start_srt_time
+        if subs:
+            output_srt_path = f"{base_name}_part{part_num}.srt"
             
-        print(f"Saving subtitles: {output_srt_path}")
-        part_subs.save(output_srt_path, encoding='utf-8')
+            start_srt_time = pysrt.SubRipTime(milliseconds=int(start_time * 1000))
+            end_srt_time = pysrt.SubRipTime(milliseconds=int(end_time * 1000))
+            
+            part_subs = subs.slice(starts_after=start_srt_time, ends_before=end_srt_time)
+            
+            for sub in part_subs:
+                sub.start -= start_srt_time
+                sub.end -= start_srt_time
+                
+            print(f"Saving subtitles: {output_srt_path}")
+            part_subs.save(output_srt_path, encoding='utf-8')
         
     print("\n==========================================")
     print("Success! All files have been split and saved.")
@@ -65,13 +66,20 @@ if __name__ == "__main__":
     print("=== Interactive Video & SRT Splitter ===\n")
     
     video_file = input("Enter the MP4 file name (e.g., video.mp4): ").strip()
-    srt_file = input("Enter the SRT file name (e.g., subtitle.srt): ").strip()
     
     if not os.path.exists(video_file):
         print(f"Error: Video file '{video_file}' not found.")
-    elif not os.path.exists(srt_file):
-        print(f"Error: SRT file '{srt_file}' not found.")
     else:
+        # 動画ファイル名から拡張子を除いたベース名を取得し、.srt を自動検出する
+        base_path, _ = os.path.splitext(video_file)
+        srt_file = base_path + ".srt"
+
+        if os.path.exists(srt_file):
+            print(f"Detected SRT file: {srt_file}")
+        else:
+            print("Notice: No matching SRT file found. Only the video will be split.")
+            srt_file = None
+
         while True:
             try:
                 user_input = input("How many parts do you want to split it into?: ")

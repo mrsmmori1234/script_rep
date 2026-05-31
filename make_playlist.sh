@@ -53,12 +53,14 @@ PARENT_DIR=$(dirname "$TARGET_DIR")
 echo "プレイリストを作成中: $TARGET_DIR"
 
 # 親ディレクトリに移動してから実行することで、出力ファイルを親ディレクトリ配下に作成します
-cd "$PARENT_DIR" || exit 1
-"$PYTHON_BIN" "$PY_SCRIPT" "$TARGET_DIR" $SHUFFLE_OPT 2>/dev/null
-"$PYTHON_BIN" "$PY_SCRIPT" "$TARGET_DIR" $SHUFFLE_OPT
+cd "$PARENT_DIR" || { echo "エラー: ディレクトリを移動できませんでした: $PARENT_DIR"; exit 1; }
+
+# Pythonスクリプトの実行（二重実行を解消し、結果を変数に格納）
+"$PYTHON_BIN" "$PY_SCRIPT" "$TARGET_DIR" ${SHUFFLE_OPT}
+EXIT_CODE=$?
 
 # --- 4. 実行結果の確認とVLC起動オプション ---
-if [ $? -eq 0 ]; then
+if [ $EXIT_CODE -eq 0 ]; then
     PLAYLIST_FILE="$PARENT_DIR/$(basename "$TARGET_DIR").xspf"
     
     echo "---------------------------------------"
@@ -75,4 +77,4 @@ else
     echo "エラーが発生しました。"
     exit 1
 fi
-exit $?
+exit $EXIT_CODE
