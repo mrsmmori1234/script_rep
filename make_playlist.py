@@ -21,9 +21,9 @@ def generate_xspf(target_dir, shuffle=False):
         return
 
     if shuffle:
-        # より質の高いランダム性を確保するため、OSレベルの乱数生成器 (SystemRandom) を使用します
+        # Use OS-level random number generator (SystemRandom) for high quality randomness
         rng = random.SystemRandom()
-        # 念のため2回シャッフルすることで、混ざり具合の「偏り」をさらに抑えます
+        # Shuffle twice to further reduce any perceived bias in the mixing
         rng.shuffle(media_files)
         rng.shuffle(media_files)
 
@@ -35,17 +35,17 @@ def generate_xspf(target_dir, shuffle=False):
     for f in media_files:
         full_path = os.path.join(abs_target, f)
         
-        # --- WSLパス (/mnt/x/...) を Windowsパス (X:/...) に変換 ---
+        # --- Convert WSL path (/mnt/x/...) to Windows path (X:/...) ---
         if full_path.startswith('/mnt/'):
             parts = full_path.split('/')
-            # parts[2] がドライブ文字 (d や c)
+            # parts[2] is the drive letter (e.g., d or c)
             drive = parts[2].upper()
-            # 残りのパスを結合
+            # Join the remaining path parts
             win_path = f"{drive}:/" + "/".join(parts[3:])
-            # VLCが確実に認識するよう、再度URLエンコード（ただしスラッシュは残す）
+            # URL encode again to ensure VLC recognizes it (preserving slashes)
             loc_text = "file:///" + urllib.parse.quote(win_path, safe=':/')
         else:
-            # WSL内のネイティブ領域にある場合はそのまま（Windows版VLCからは見えない可能性あり）
+            # Native WSL paths remain unchanged (might not be visible to Windows VLC)
             loc_text = "file://" + urllib.parse.quote(full_path)
 
         track = ET.SubElement(trackList, "track")

@@ -22,7 +22,7 @@ def main():
     }
     all_holidays = []
 
-    # 祝日データを収集
+    # Collect holiday data
     print("Fetching holiday data...")
     for code, name in countries_to_check.items():
         try:
@@ -39,10 +39,10 @@ def main():
         except KeyError:
             print(f"Could not find holidays for country code: {code}")
 
-    # 日付順に並べ替え
+    # Sort by date
     all_holidays.sort(key=lambda x: x["date"])
 
-    # CSVファイルに書き出し
+    # Write to CSV
     output_filename = f"holidays_{current_year}.csv"
     weekdays_en = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     header = ['Date', 'Day of the week', 'Country code', 'Name']

@@ -1,4 +1,5 @@
 import os
+import sys
 import subprocess
 from moviepy.video.io.VideoFileClip import VideoFileClip
 import pysrt
@@ -63,23 +64,42 @@ def split_mp4_and_srt(video_path, srt_path, num_splits):
     print("==========================================")
 
 if __name__ == "__main__":
-    print("=== Interactive Video & SRT Splitter ===\n")
-    
-    video_file = input("Enter the MP4 file name (e.g., video.mp4): ").strip()
-    
+    if len(sys.argv) < 2:
+        print("Usage: python split_media.py <video_file> [num_splits]")
+        print("Example: python split_media.py 'video.mp4' 3")
+        sys.exit(1)
+
+    video_file = sys.argv[1]
+
     if not os.path.exists(video_file):
         print(f"Error: Video file '{video_file}' not found.")
+        sys.exit(1)
+
+    # --- SRTファイルの高度な自動検出 ---
+    # Get the base name of the video (without extension)
+    base_name = os.path.splitext(os.path.basename(video_file))[0]
+    directory = os.path.dirname(video_file) or "."
+    
+    srt_file = None
+    # Search directory for a file starting with the base name and ending in .srt
+    for f in os.listdir(directory):
+        if f.startswith(base_name) and f.lower().endswith(".srt"):
+            srt_file = os.path.join(directory, f)
+            break
+
+    if srt_file:
+        print(f"Detected SRT file: {srt_file}")
     else:
-        # 動画ファイル名から拡張子を除いたベース名を取得し、.srt を自動検出する
-        base_path, _ = os.path.splitext(video_file)
-        srt_file = base_path + ".srt"
+        print("Notice: No matching SRT file found. Only the video will be split.")
 
-        if os.path.exists(srt_file):
-            print(f"Detected SRT file: {srt_file}")
-        else:
-            print("Notice: No matching SRT file found. Only the video will be split.")
-            srt_file = None
-
+    # Get the number of splits (use 2nd argument if provided, otherwise prompt)
+    if len(sys.argv) >= 3:
+        try:
+            num_splits = int(sys.argv[2])
+        except ValueError:
+            print("Error: num_splits must be a number.")
+            sys.exit(1)
+    else:
         while True:
             try:
                 user_input = input("How many parts do you want to split it into?: ")
@@ -89,6 +109,6 @@ if __name__ == "__main__":
                 else:
                     print("Please enter a number greater than 1.")
             except ValueError:
-                print("Invalid input. Please enter a valid whole number.")
-        
-        split_mp4_and_srt(video_file, srt_file, num_splits)
+                print("Invalid input. Please enter a valid number.")
+
+    split_mp4_and_srt(video_file, srt_file, num_splits)
