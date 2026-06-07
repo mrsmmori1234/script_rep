@@ -3,6 +3,7 @@ import sys
 import subprocess
 from moviepy.video.io.VideoFileClip import VideoFileClip
 import pysrt
+import glob
 
 def split_mp4_and_srt(video_path, srt_path, num_splits):
     # 1. Load video via MoviePy just to get the accurate duration
@@ -69,40 +70,34 @@ if __name__ == "__main__":
         print("Example: python split_media.py 'video.mp4' 3")
         sys.exit(1)
 
-    video_file = sys.argv[1]
+    # --- 引数の解析 ---
+    # 最後の引数が数値（かつファイルとして存在しない）なら分割数とみなす
+    last_arg = sys.argv[-1]
+    if last_arg.isdigit() and not os.path.exists(last_arg):
+        num_splits_arg = int(last_arg)
+        input_patterns = sys.argv[1:-1]
+    else:
+        num_splits_arg = None
+        input_patterns = sys.argv[1:]
 
-    if not os.path.exists(video_file):
-        print(f"Error: Video file '{video_file}' not found.")
+    # ワイルドカードの展開（念のためglobを使用）
+    video_files = []
+    for pattern in input_patterns:
+        matched = glob.glob(pattern)
+        if matched:
+            video_files.extend(matched)
+        else:
+            video_files.append(pattern)
+
+    if not video_files:
+        print("Error: No valid video files found.")
         sys.exit(1)
 
-    # --- SRTファイルの高度な自動検出 ---
-    # Get the base name of the video (without extension)
-    base_name = os.path.splitext(os.path.basename(video_file))[0]
-    directory = os.path.dirname(video_file) or "."
-    
-    srt_file = None
-    # Search directory for a file starting with the base name and ending in .srt
-    for f in os.listdir(directory):
-        if f.startswith(base_name) and f.lower().endswith(".srt"):
-            srt_file = os.path.join(directory, f)
-            break
-
-    if srt_file:
-        print(f"Detected SRT file: {srt_file}")
-    else:
-        print("Notice: No matching SRT file found. Only the video will be split.")
-
-    # Get the number of splits (use 2nd argument if provided, otherwise prompt)
-    if len(sys.argv) >= 3:
-        try:
-            num_splits = int(sys.argv[2])
-        except ValueError:
-            print("Error: num_splits must be a number.")
-            sys.exit(1)
-    else:
+    # 分割数が指定されていない場合は一度だけ質問する
+    if num_splits_arg is None:
         while True:
             try:
-                user_input = input("How many parts do you want to split it into?: ")
+                user_input = input(f"Found {len(video_files)} files. How many parts do you want to split them into?: ")
                 num_splits = int(user_input)
                 if num_splits > 1:
                     break
@@ -110,5 +105,27 @@ if __name__ == "__main__":
                     print("Please enter a number greater than 1.")
             except ValueError:
                 print("Invalid input. Please enter a valid number.")
+    else:
+        num_splits = num_splits_arg
 
-    split_mp4_and_srt(video_file, srt_file, num_splits)
+    # --- 各ファイルを順番に処理 ---
+    for video_file in video_files:
+        if not os.path.exists(video_file):
+            print(f"Skipping: {video_file} (File not found)")
+            continue
+
+        # SRTファイルの自動検出
+        base_name = os.path.splitext(os.path.basename(video_file))[0]
+        directory = os.path.dirname(video_file) or "."
+        
+        srt_file = None
+        for f in os.listdir(directory):
+            if f.startswith(base_name) and f.lower().endswith(".srt"):
+                srt_file = os.path.join(directory, f)
+                break
+
+        print(f"\n>>> Starting process for: {video_file}")
+        if srt_file:
+            print(f"Detected SRT: {srt_file}")
+        
+        split_mp4_and_srt(video_file, srt_file, num_splits)
