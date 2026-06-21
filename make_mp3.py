@@ -43,7 +43,7 @@ def combine_audio_files(target_dir):
             # 4. Write as mp3
             date_str = datetime.date.today().strftime("%Y%m%d")
             target_folder_name = os.path.basename(os.path.normpath(target_dir))
-            output_filename = f"{target_folder_name}_{date_str}.mp3"
+            output_filename = f"/mnt/d/Youtube/{target_folder_name}_{date_str}.mp3"
             output_path = output_filename  # Output to current directory
             final_audio.write_audiofile(output_path)
             print(f"\nSuccessfully created: {os.path.abspath(output_path)}")

@@ -1,5 +1,4 @@
 {
-  "settings": {
-    "python.defaultInterpreterPath": "~/.pyenv/versions/scripts-env/bin/python",
-  }
+    "python.defaultInterpreterPath": "/home/mrsmmori/.pyenv/versions/scripts-env/bin/python",
+    "python.interpreterPath": "/home/mrsmmori/.pyenv/versions/scripts-env/bin/python"
 }

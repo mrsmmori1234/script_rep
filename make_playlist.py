@@ -56,7 +56,7 @@ def generate_xspf(target_dir, shuffle=False):
         title.text = f
 
     # 保存
-    output_filename = f"{os.path.basename(os.path.normpath(abs_target))}.xspf"
+    output_filename = f"/mnt/d/Youtube/{os.path.basename(os.path.normpath(abs_target))}.xspf"
     tree = ET.ElementTree(playlist)
     ET.indent(tree, space="    ")
     try:

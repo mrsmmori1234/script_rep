@@ -38,10 +38,11 @@ def translate_srt():
         return
 
     # 2. Interactive Mode Selection
-    print("\n--- Choose Translation Mode ---")
-    print("1: Japanese Only")
-    print("2: Bilingual (English + Japanese)")
-    mode = input("Select option (1 or 2): ")
+    # print("\n--- Choose Translation Mode ---")
+    # print("1: Japanese Only")
+    # print("2: Bilingual (English + Japanese)")
+    # mode = input("Select option (1 or 2): ")
+    mode = "2"
 
     file_name = os.path.basename(input_path)
     target_dir = os.path.dirname(input_path)
