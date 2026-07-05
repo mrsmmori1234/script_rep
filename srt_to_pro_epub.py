@@ -1,38 +1,39 @@
 import os
+import sys
 import re
 from bs4 import BeautifulSoup
 from ebooklib import epub
 
 def clean_srt_content(srt_path):
-    """SRTファイルからタイムスタンプを除去し、きれいなHTML段落を生成する"""
+    """Remove timestamps from SRT files and generate clean HTML paragraphs"""
     if not os.path.exists(srt_path):
         return ""
-    
-    # タイムスタンプとインデックス番号を弾く正規表現
+
+    # Regular expression to exclude timestamps and index numbers
     pattern = re.compile(r"^\d+$|^\d\d:\d\d:\d\d[,\.]\d\d\d -->.*$")
     paragraphs = []
-    
+
     with open(srt_path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
-            if line and not pattern.match(line):
-                # 重複した字幕の微調整や、好みに応じた文字置換をここで行えます
-                paragraphs.append(f"<p>{line}</p>")
-                
+            # Skip empty lines, timestamp lines, or index lines
+            if not line or pattern.match(line):
+                continue
+
+            paragraphs.append(f"<p>{line}</p>")
+
     return "\n".join(paragraphs)
 
-def create_pro_epub(srt_dir, output_epub_path, title="プロ仕様字幕集", author="Python書房", vertical=True):
-    """ebooklibを使用して、Kindleに最適化された高品質なEPUBを生成する"""
-    
-    # 1. ブックオブジェクトの初期化と基本メタデータ設定
+def create_pro_epub_from_file(srt_path, output_epub_path, author="Python Books", vertical=False):
+    """Generate high-quality EPUB optimized for Kindle from a single SRT file"""
+    title = os.path.splitext(os.path.basename(srt_path))[0]
+
     book = epub.EpubBook()
-    book.set_identifier(f"custom_srt_book_{title}")
+    book.set_identifier(f"custom_srt_book_{hash(title)}")
     book.set_title(title)
     book.set_language("ja")
     book.add_author(author)
-    
-    # 2. スタイルシート（CSS）の設定
-    # 外部ライブラリを使うことで、メディアクエリなど高度なCSSも安全にカプセル化できます
+
     if vertical:
         css_content = """
         @page { margin: 5%; }
@@ -55,10 +56,9 @@ def create_pro_epub(srt_dir, output_epub_path, title="プロ仕様字幕集", au
             text-align: justify;
             margin-top: 0;
             margin-bottom: 0;
-            text-indent: 1em; /* 行頭1文字下げ */
+            text-indent: 1em;
         }
         """
-        # Kindleに「右開き（縦書き用）」であることを明示するメタデータ
         book.spine.append('page-progression-direction="rtl"')
     else:
         css_content = """
@@ -76,11 +76,11 @@ def create_pro_epub(srt_dir, output_epub_path, title="プロ仕様字幕集", au
         }
         p {
             margin-top: 0;
-            margin-bottom: 0.8em;
+            margin-bottom: 0.5em;
             text-align: justify;
         }
         """
-    
+
     style_item = epub.EpubItem(
         uid="style_nav",
         file_name="style/style.css",
@@ -88,70 +88,42 @@ def create_pro_epub(srt_dir, output_epub_path, title="プロ仕様字幕集", au
         content=css_content
     )
     book.add_item(style_item)
-    
-    # 3. SRTファイルの読み込みと各章の生成
-    srt_files = sorted([f for f in os.listdir(srt_dir) if f.endswith('.srt')])
-    if not srt_files:
-        print(f"エラー: '{srt_dir}' 内に .srt ファイルがありません。")
-        return
-        
-    chapters = []
-    
-    for i, filename in enumerate(srt_files, start=1):
-        ch_title = os.path.splitext(filename)[0]
-        body_text = clean_srt_content(os.path.join(srt_dir, filename))
-        
-        # BeautifulSoupを使ってHTML構造をきれいに整形
-        html_content = f"""
-        <?xml version="1.0" encoding="utf-8"?>
-        <!DOCTYPE html>
-        <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ja" lang="ja">
-        <head>
-            <title>{ch_title}</title>
-            <link rel="stylesheet" href="style/style.css" type="text/css" />
-        </head>
-        <body>
-            <h1>{ch_title}</h1>
-            {body_text}
-        </body>
-        </html>
-        """
-        soup = BeautifulSoup(html_content, "html.parser")
-        
-        # 章のオブジェクトを作成
-        chapter = epub.EpubHtml(
-            title=ch_title,
-            file_name=f"chap_{i:02d}.xhtml",
-            lang="ja"
-        )
-        chapter.content = str(soup)
-        chapter.add_item(style_item)
-        
-        book.add_item(chapter)
-        chapters.append(chapter)
-        
-    # 4. 目次（TOC）とナビゲーションの設定
-    # これにより、Kindle端末の「移動」メニューに表示されるシステム目次が自動生成されます
-    book.toc = tuple(chapters)
-    
-    # 本の背表紙（読み込み順序）の設定
-    book.spine.extend(chapters)
-    
-    # NCXとNav（EPUB3標準の目次ファイル）を追加
+
+    body_text = clean_srt_content(srt_path)
+    soup = BeautifulSoup(body_text, "html.parser")
+    cleaned_body = soup.encode(formatter="html").decode("utf-8")
+
+    chapter = epub.EpubHtml(
+        title=title,
+        file_name="chap_01.xhtml",
+        lang="ja"
+    )
+    chapter.content = f"<h1>{title}</h1>\n{cleaned_body}"
+    chapter.add_item(style_item)
+
+    book.add_item(chapter)
+    book.toc = (chapter,)
+    book.spine.extend([chapter])
     book.add_item(epub.EpubNcx())
     book.add_item(epub.EpubNav())
-    
-    # 5. ファイルの書き出し
-    epub.write_epub(output_epub_path, book, {})
-    print(f"プロ仕様のEPUBを出力しました: {output_epub_path}")
 
-# ─── 実行部分 ───
+    epub.write_epub(output_epub_path, book, {})
+    print(f"Output professional-grade EPUB: {output_epub_path}")
+
+def convert(srt_path, vertical=False):
+    """外部から呼び出すためのメインエントリポイント関数"""
+    if not srt_path.endswith('.srt') or not os.path.exists(srt_path):
+        print(f"Error: Valid SRT file not found. Input path: {srt_path}")
+        return False
+
+    output_epub = os.path.splitext(srt_path)[0] + ".epub"
+    create_pro_epub_from_file(srt_path, output_epub, vertical=vertical)
+    return True
+
+# ─── When run directly from the command line ───
 if __name__ == "__main__":
-    # 使用する際は、スクリプトと同じ場所に「srt_folder」を作成し、.srtを入れてください
-    create_pro_epub(
-        srt_dir="/mnt/d/Youtube/Movie_Pool",
-        output_epub_path="/mnt/d/Youtube/Movie_Pool.epub",
-        title="Movie_Pool",
-        #author="マイ・ライブラリ",
-        vertical=False # Trueで綺麗な縦書き、Falseで横書き
-    )
+    if len(sys.argv) < 2:
+        print("Usage: python srt_to_pro_epub.py [SRT file path]")
+        sys.exit(1)
+
+    convert(sys.argv[1])

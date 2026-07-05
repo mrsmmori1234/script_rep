@@ -35,7 +35,7 @@ def combine_audio_files(target_dir, output_dir="/mnt/d/Youtube"):
 
         final_audio = concatenate_audioclips(clips)
         
-        # 時刻(HHMM)まで取得するように修正
+        # Fixed to get timestamp up to HHMM format
         date_str = dt.now().strftime("%Y%m%d_%H%M")
         
         target_folder_name = os.path.basename(os.path.normpath(target_dir))
