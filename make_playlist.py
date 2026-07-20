@@ -23,10 +23,23 @@ def generate_xspf(target_dir, shuffle=False, output_dir="/mnt/d/Youtube"):
         rng = random.SystemRandom()
         rng.shuffle(media_files)
 
+    # --- ここから名前判定の修正 ---
+    # 末尾のディレクトリ名を取得
+    last_dir = os.path.basename(os.path.normpath(abs_target))
+    
+    if last_dir == "Shorts":
+        # 1つ上の親ディレクトリのパスから名前を取得
+        parent_dir = os.path.dirname(os.path.normpath(abs_target))
+        playlist_name = os.path.basename(parent_dir)
+    else:
+        playlist_name = last_dir
+    # --- ここまで ---
+
     playlist = ET.Element("playlist", version="1", xmlns="http://xspf.org/ns/0/")
     playlist.set("xmlns:vlc", "http://www.videolan.org/vlc/playlist/ns/0/")
 
-    ET.SubElement(playlist, "title").text = os.path.basename(os.path.normpath(abs_target))
+    # 取得した playlist_name をタイトルに設定
+    ET.SubElement(playlist, "title").text = playlist_name
     track_list = ET.SubElement(playlist, "trackList")
     extension = ET.SubElement(playlist, "extension", application="http://www.videolan.org/vlc/playlist/0")
 
@@ -49,7 +62,8 @@ def generate_xspf(target_dir, shuffle=False, output_dir="/mnt/d/Youtube"):
         ET.SubElement(track_ext, "vlc:id").text = str(i)
         ET.SubElement(extension, "vlc:item", tid=str(i))
 
-    output_filename = os.path.join(output_dir, f"{os.path.basename(os.path.normpath(abs_target))}.xspf")
+    # 取得した playlist_name を出力ファイル名に設定
+    output_filename = os.path.join(output_dir, f"{playlist_name}.xspf")
     tree = ET.ElementTree(playlist)
     ET.indent(tree, space="    ")
 
