@@ -1,88 +1,105 @@
-#!/usr/bin/env python3
-import argparse
 import os
 import random
 import sys
-import urllib.parse
 import xml.etree.ElementTree as ET
+import subprocess
+import tempfile
+from datetime import datetime as dt
 
 
-def generate_xspf(target_dir, shuffle=False, output_dir="/mnt/d/Youtube"):
-    abs_target = os.path.abspath(target_dir)
+def get_output_prefix(target_dir):
+    """ターゲットディレクトリのパスから、適切な出力ファイル名用のプレフィックスを取得する。"""
+    normalized_path = os.path.normpath(target_dir)
+    folder_name = os.path.basename(normalized_path)
 
-    if not os.path.isdir(abs_target):
-        print(f"Error: {abs_target} is not a directory.")
+    if folder_name.lower() == "shorts":
+        parent_dir = os.path.dirname(normalized_path)
+        return os.path.basename(parent_dir)
+
+    return folder_name
+
+
+def generate_mp4(target_dir, output_dir="/mnt/d/Youtube", segment_time=3600):
+    """
+    ffmpegのconcat機能とsegment機能を組み合わせ、
+    メモリを消費せずに指定時間（デフォルト3600秒＝1時間）ごとに分割してMP4を出力する関数
+    """
+    if not os.path.isdir(target_dir):
+        print(f"Error: Directory '{target_dir}' not found.")
         return None
 
-    media_files = [f for f in sorted(os.listdir(abs_target)) if f.lower().endswith((".mp3", ".mp4"))]
+    media_files = [f for f in sorted(os.listdir(target_dir)) if f.lower().endswith(".mp4")]
     if not media_files:
-        print("No media files found.")
+        print("No .mp4 files found in the directory.")
         return None
 
-    if shuffle:
-        rng = random.SystemRandom()
-        rng.shuffle(media_files)
+    # シャッフル処理
+    rng = random.SystemRandom()
+    rng.shuffle(media_files)
+    rng.shuffle(media_files)
 
-    # --- ここから名前判定の修正 ---
-    # 末尾のディレクトリ名を取得
-    last_dir = os.path.basename(os.path.normpath(abs_target))
+    print(f"Found {len(media_files)} MP4 files. Concatenating and segmenting ({segment_time}s each) with ffmpeg...")
+
+    prefix = get_output_prefix(target_dir)
+    os.makedirs(output_dir, exist_ok=True)
     
-    if last_dir == "Shorts":
-        # 1つ上の親ディレクトリのパスから名前を取得
-        parent_dir = os.path.dirname(os.path.normpath(abs_target))
-        playlist_name = os.path.basename(parent_dir)
-    else:
-        playlist_name = last_dir
-    # --- ここまで ---
+    # 出力ファイル名のパターン（例: MontaEnglish_part001.mp4, MontaEnglish_part002.mp4）
+    output_pattern = os.path.join(output_dir, f"{prefix}_part%03d.mp4")
 
-    playlist = ET.Element("playlist", version="1", xmlns="http://xspf.org/ns/0/")
-    playlist.set("xmlns:vlc", "http://www.videolan.org/vlc/playlist/ns/0/")
-
-    # 取得した playlist_name をタイトルに設定
-    ET.SubElement(playlist, "title").text = playlist_name
-    track_list = ET.SubElement(playlist, "trackList")
-    extension = ET.SubElement(playlist, "extension", application="http://www.videolan.org/vlc/playlist/0")
-
-    for i, filename in enumerate(media_files):
-        full_path = os.path.join(abs_target, filename)
-
-        if full_path.startswith("/mnt/"):
-            parts = full_path.split("/")
-            drive = parts[2].upper()
-            win_path = f"{drive}:/" + "/".join(parts[3:])
-            loc_text = "file:///" + urllib.parse.quote(win_path, safe=":/")
-        else:
-            loc_text = "file://" + urllib.parse.quote(full_path)
-
-        track = ET.SubElement(track_list, "track")
-        ET.SubElement(track, "location").text = loc_text
-        ET.SubElement(track, "title").text = filename
-
-        track_ext = ET.SubElement(track, "extension", application="http://www.videolan.org/vlc/playlist/0")
-        ET.SubElement(track_ext, "vlc:id").text = str(i)
-        ET.SubElement(extension, "vlc:item", tid=str(i))
-
-    # 取得した playlist_name を出力ファイル名に設定
-    output_filename = os.path.join(output_dir, f"{playlist_name}.xspf")
-    tree = ET.ElementTree(playlist)
-    ET.indent(tree, space="    ")
+    # 一時テキストファイルを作成して結合リストを書き込む
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+        list_file_path = f.name
+        for filename in media_files:
+            file_path = os.path.abspath(os.path.join(target_dir, filename))
+            # シングルクォーテーションのエスケープ処理
+            escaped_path = file_path.replace("'", "'\\''")
+            f.write(f"file '{escaped_path}'\n")
 
     try:
-        tree.write(output_filename, encoding="utf-8", xml_declaration=True)
-        print(f"Playlist created for Windows VLC: {output_filename}")
-        return output_filename
-    except IOError:
-        print(f"Error: Could not write to {output_filename}. The file might be locked by another application.")
+        # ffmpegを無再劣化・超高速・低メモリモード（-c copy）かつ分割出力（segment）で実行
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-y",
+            "-fflags", "+genpts",                  # タイムスタンプを修正して再生ズレを予防
+            "-f", "concat",
+            "-safe", "0",
+            "-i", list_file_path,
+            "-c", "copy",
+            "-avoid_negative_ts", "make_zero",     # タイムスタンプの基準を0に揃える
+            "-f", "segment",                        # セグメント分割機能を使用
+            "-segment_time", str(segment_time),    # 分割する秒数（例: 3600）
+            "-reset_timestamps", "1",               # 各パーツの時間を0秒スタートにリセット
+            output_pattern
+        ]
+
+        result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            print(f"Error executing ffmpeg:\n{result.stderr}")
+            return None
+
+        print(f"\nSuccessfully created segmented MP4 files in: {os.path.abspath(output_dir)}")
+        print(f"File pattern: {prefix}_part001.mp4, {prefix}_part002.mp4 ...")
+        return output_dir
+
+    except subprocess.CalledProcessError as e:
+        print(f"\nAn error occurred during ffmpeg execution: {e}")
         return None
+    finally:
+        # 一時ファイルの削除
+        if os.path.exists(list_file_path):
+            os.remove(list_file_path)
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Generate an XSPF playlist from a directory.")
-    parser.add_argument("directory", help="The directory containing media files.")
-    parser.add_argument("-r", "--random", action="store_true", help="Shuffle the playlist order.")
+    argv = sys.argv[1:] if argv is None else argv
 
-    args = parser.parse_args(argv)
-    return 0 if generate_xspf(args.directory, shuffle=args.random) else 1
+    if len(argv) < 1:
+        print("Usage: python make_mp4.py [directory_path]")
+        return 1
+
+    generate_mp4(argv[0])
+    return 0
 
 
 if __name__ == "__main__":
