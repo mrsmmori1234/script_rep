@@ -33,7 +33,7 @@ def get_video_specs(file_path):
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         data = json.loads(result.stdout)
-        
+
         v_codec = None
         a_codec = None
         width = None
@@ -57,7 +57,7 @@ def get_video_specs(file_path):
 def generate_mp4(target_dir, output_dir="/mnt/d/Youtube"):
     """
     concat フィルタを使用し、超高速(ultrafast)でタイムスタンプとフレームレートを30fpsに正規化。
-    Non-monotonous DTS を完全根絶し、WMPで100%安全に再生できるMP4を生成する。
+    Non-monotonous DTS を完全根絶し、WMPや倍速再生(VLC等)でも音ズレしないMP4を生成する。
     """
     if not os.path.isdir(target_dir):
         print(f"Error: Directory '{target_dir}' not found.")
@@ -104,21 +104,24 @@ def generate_mp4(target_dir, output_dir="/mnt/d/Youtube"):
 
     # ffmpeg concat filter のコマンドを構築
     ffmpeg_cmd = ["ffmpeg", "-y"]
-    
+
     # 全入力を追加
     for f in valid_files:
         file_path = os.path.abspath(os.path.join(target_dir, f))
         ffmpeg_cmd.extend(["-i", file_path])
 
     # 複合フィルタ（filter_complex）の構築
-    # 各入力の映像・音声を 30fps / 固定サンプリングレート に強制同期して結合
+    # 音声・映像ともにsettb=AVTBを指定し、aresampleにasync=1:first_pts=0を適用して完璧に強制同期
     filter_str = ""
     for i in range(len(valid_files)):
-        filter_str += f"[{i}:v]fps=30,settb=AVTB[v{i}];[{i}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo[a{i}];"
-    
+        filter_str += (
+            f"[{i}:v]fps=30,settb=AVTB[v{i}];"
+            f"[{i}:a]aresample=44100:async=1:first_pts=0,aformat=sample_fmts=fltp:channel_layouts=stereo,settb=AVTB[a{i}];"
+        )
+
     for i in range(len(valid_files)):
         filter_str += f"[v{i}][a{i}]"
-    
+
     filter_str += f"concat=n={len(valid_files)}:v=1:a=1[outv][outa]"
 
     ffmpeg_cmd.extend([
@@ -128,6 +131,7 @@ def generate_mp4(target_dir, output_dir="/mnt/d/Youtube"):
         "-c:v", "libx264",
         "-preset", "ultrafast",  # 超高速エンコード（処理速度最優先）
         "-crf", "23",            # 画質とファイルサイズのバランス
+        "-g", "30",              # キーフレーム間隔を固定（倍速再生・シーク時の同期改善）
         "-pix_fmt", "yuv420p",   # WMP互換性維持
         "-c:a", "aac",
         "-b:a", "192k",
@@ -142,6 +146,7 @@ def generate_mp4(target_dir, output_dir="/mnt/d/Youtube"):
     except subprocess.CalledProcessError as e:
         print(f"\n❌ An error occurred during ffmpeg execution: {e}")
         return None
+
 
 def generate_xspf(target_dir, output_dir="/mnt/d/Youtube"):
     if not os.path.isdir(target_dir):
