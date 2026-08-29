@@ -56,8 +56,9 @@ def get_video_specs(file_path):
 
 def generate_mp4(target_dir, output_dir="/mnt/d/Youtube"):
     """
-    concat フィルタを使用し、超高速(ultrafast)でタイムスタンプとフレームレートを30fpsに正規化。
-    Non-monotonous DTS を完全根絶し、WMPや倍速再生(VLC等)でも音ズレしないMP4を生成する。
+    大量のファイルを安全かつ高速に結合する方式。
+    1. 各動画を同一規格（30fps, 44.1kHz, 音声同期補正）に標準化して一時フォルダに保存 (.mp4)
+    2. concat demuxer で全ファイルを無劣化・超高速結合 (DTSズレ完全防止)
     """
     if not os.path.isdir(target_dir):
         print(f"Error: Directory '{target_dir}' not found.")
@@ -100,52 +101,66 @@ def generate_mp4(target_dir, output_dir="/mnt/d/Youtube"):
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"{prefix}.mp4")
 
-    print(f"\nConcatenating and normalizing {len(valid_files)} videos (Fast Encoding)...")
+    print(f"\nProcessing {len(valid_files)} videos in temporary storage...")
 
-    # ffmpeg concat filter のコマンドを構築
-    ffmpeg_cmd = ["ffmpeg", "-y"]
+    # 一時ディレクトリの作成
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_mp4_files = []
 
-    # 全入力を追加
-    for f in valid_files:
-        file_path = os.path.abspath(os.path.join(target_dir, f))
-        ffmpeg_cmd.extend(["-i", file_path])
+        # Step 1: 各ファイルを標準化 (.mp4形式で各パーツのPTS/DTSを完全にゼロリセット)
+        for idx, f in enumerate(valid_files):
+            input_path = os.path.abspath(os.path.join(target_dir, f))
+            temp_output = os.path.join(temp_dir, f"part_{idx:05d}.mp4")
 
-    # 複合フィルタ（filter_complex）の構築
-    # 音声・映像ともにsettb=AVTBを指定し、aresampleにasync=1:first_pts=0を適用して完璧に強制同期
-    filter_str = ""
-    for i in range(len(valid_files)):
-        filter_str += (
-            f"[{i}:v]fps=30,settb=AVTB[v{i}];"
-            f"[{i}:a]aresample=44100:async=1:first_pts=0,aformat=sample_fmts=fltp:channel_layouts=stereo,settb=AVTB[a{i}];"
-        )
+            cmd_norm = [
+                "ffmpeg", "-y", "-loglevel", "error",
+                "-i", input_path,
+                "-vf", "fps=30,settb=AVTB",
+                "-af", "aresample=44100:async=1:first_pts=0,aformat=sample_fmts=fltp:channel_layouts=stereo,asettb=AVTB",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-g", "30", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "192k",
+                "-avoid_negative_ts", "make_zero",
+                temp_output
+            ]
 
-    for i in range(len(valid_files)):
-        filter_str += f"[v{i}][a{i}]"
+            try:
+                subprocess.run(cmd_norm, check=True)
+                temp_mp4_files.append(temp_output)
+                print(f"[{idx + 1}/{len(valid_files)}] Normalized: {f}", end="\r")
+            except subprocess.CalledProcessError:
+                print(f"\n⚠️ Skipping problematic file: {f}")
 
-    filter_str += f"concat=n={len(valid_files)}:v=1:a=1[outv][outa]"
+        if not temp_mp4_files:
+            print("\n❌ Failed to process any videos.")
+            return None
 
-    ffmpeg_cmd.extend([
-        "-filter_complex", filter_str,
-        "-map", "[outv]",
-        "-map", "[outa]",
-        "-c:v", "libx264",
-        "-preset", "ultrafast",  # 超高速エンコード（処理速度最優先）
-        "-crf", "23",            # 画質とファイルサイズのバランス
-        "-g", "30",              # キーフレーム間隔を固定（倍速再生・シーク時の同期改善）
-        "-pix_fmt", "yuv420p",   # WMP互換性維持
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-movflags", "+faststart",
-        output_path
-    ])
+        # Step 2: Concat リストを作成
+        concat_list_path = os.path.join(temp_dir, "concat_list.txt")
+        with open(concat_list_path, "w", encoding="utf-8") as file_list:
+            for mp4_file in temp_mp4_files:
+                file_list.write(f"file '{mp4_file}'\n")
 
-    try:
-        subprocess.run(ffmpeg_cmd, check=True)
-        print(f"\n✅ Successfully created 100% clean MP4: {os.path.abspath(output_path)}")
-        return output_path
-    except subprocess.CalledProcessError as e:
-        print(f"\n❌ An error occurred during ffmpeg execution: {e}")
-        return None
+        print(f"\n\nConcatenating normalized clips into final MP4...")
+
+        # Step 3: Concat Demuxer で結合 (-segment_time_metadata でストリームタイムスタンプを強制接続)
+        ffmpeg_cmd = [
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-segment_time_metadata", "1",
+            "-i", concat_list_path,
+            "-c", "copy",
+            "-movflags", "+faststart",
+            output_path
+        ]
+
+        try:
+            subprocess.run(ffmpeg_cmd, check=True)
+            print(f"\n✅ Successfully created 100% clean MP4: {os.path.abspath(output_path)}")
+            return output_path
+        except subprocess.CalledProcessError as e:
+            print(f"\n❌ An error occurred during final concatenation: {e}")
+            return None
 
 
 def generate_xspf(target_dir, output_dir="/mnt/d/Youtube"):
