@@ -1,7 +1,6 @@
 import os
 import random
 import sys
-import xml.etree.ElementTree as ET
 import subprocess
 import tempfile
 from datetime import datetime as dt
@@ -19,18 +18,29 @@ def get_output_prefix(target_dir):
     return folder_name
 
 
-def generate_mp4(target_dir, output_dir="/mnt/d/Youtube", segment_time=3600):
+def generate_media(target_dir, output_dir="/mnt/d/Youtube", ext=".mp4"):
     """
-    ffmpegのconcat機能とsegment機能を組み合わせ、
-    メモリを消費せずに指定時間（デフォルト3600秒＝1時間）ごとに分割してMP4を出力する関数
+    指定したディレクトリ（およびサブディレクトリ）から指定された拡張子のファイルを
+    再帰的に探索してシャッフル・結合し、1つのファイルとして出力する関数
     """
+    ext = ext.lower()
+    if not ext.startswith("."):
+        ext = "." + ext
+
     if not os.path.isdir(target_dir):
         print(f"Error: Directory '{target_dir}' not found.")
         return None
 
-    media_files = [f for f in sorted(os.listdir(target_dir)) if f.lower().endswith(".mp4")]
+    # os.walk を使ってサブディレクトリも含めてファイルを再帰的に収集する
+    media_files = []
+    for root, dirs, files in os.walk(target_dir):
+        for file in files:
+            if file.lower().endswith(ext):
+                full_path = os.path.abspath(os.path.join(root, file))
+                media_files.append(full_path)
+
     if not media_files:
-        print("No .mp4 files found in the directory.")
+        print(f"No {ext} files found in the directory or subdirectories.")
         return None
 
     # シャッフル処理
@@ -38,39 +48,48 @@ def generate_mp4(target_dir, output_dir="/mnt/d/Youtube", segment_time=3600):
     rng.shuffle(media_files)
     rng.shuffle(media_files)
 
-    print(f"Found {len(media_files)} MP4 files. Concatenating and segmenting ({segment_time}s each) with ffmpeg...")
+    print(f"Found {len(media_files)} {ext} files (including subdirectories). Concatenating into a single file with ffmpeg...")
 
     prefix = get_output_prefix(target_dir)
     os.makedirs(output_dir, exist_ok=True)
-    
-    # 出力ファイル名のパターン（例: MontaEnglish_part001.mp4, MontaEnglish_part002.mp4）
-    output_pattern = os.path.join(output_dir, f"{prefix}_part%03d.mp4")
+
+    # 出力ファイル名を1つのファイル用に固定（例: Alfred Cortot.mp3）
+    output_file_path = os.path.join(output_dir, f"{prefix}{ext}")
 
     # 一時テキストファイルを作成して結合リストを書き込む
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
         list_file_path = f.name
-        for filename in media_files:
-            file_path = os.path.abspath(os.path.join(target_dir, filename))
-            # シングルクォーテーションのエスケープ処理
+        for file_path in media_files:
             escaped_path = file_path.replace("'", "'\\''")
             f.write(f"file '{escaped_path}'\n")
 
     try:
-        # ffmpegを無再劣化・超高速・低メモリモード（-c copy）かつ分割出力（segment）で実行
-        ffmpeg_cmd = [
-            "ffmpeg",
-            "-y",
-            "-fflags", "+genpts",                  # タイムスタンプを修正して再生ズレを予防
-            "-f", "concat",
-            "-safe", "0",
-            "-i", list_file_path,
-            "-c", "copy",
-            "-avoid_negative_ts", "make_zero",     # タイムスタンプの基準を0に揃える
-            "-f", "segment",                        # セグメント分割機能を使用
-            "-segment_time", str(segment_time),    # 分割する秒数（例: 3600）
-            "-reset_timestamps", "1",               # 各パーツの時間を0秒スタートにリセット
-            output_pattern
-        ]
+        # 拡張子に応じたffmpegコマンド（分割せず1つに出力）
+        if ext == ".mp3":
+            ffmpeg_cmd = [
+                "ffmpeg",
+                "-y",
+                "-fflags", "+genpts",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", list_file_path,
+                "-vn",                           # 映像ストリームを無視（音声のみ）
+                "-c:a", "copy",                  # 再エンコードなしで高速コピー
+                "-avoid_negative_ts", "make_zero",
+                output_file_path
+            ]
+        else:
+            ffmpeg_cmd = [
+                "ffmpeg",
+                "-y",
+                "-fflags", "+genpts",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", list_file_path,
+                "-c", "copy",
+                "-avoid_negative_ts", "make_zero",
+                output_file_path
+            ]
 
         result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
 
@@ -78,8 +97,7 @@ def generate_mp4(target_dir, output_dir="/mnt/d/Youtube", segment_time=3600):
             print(f"Error executing ffmpeg:\n{result.stderr}")
             return None
 
-        print(f"\nSuccessfully created segmented MP4 files in: {os.path.abspath(output_dir)}")
-        print(f"File pattern: {prefix}_part001.mp4, {prefix}_part002.mp4 ...")
+        print(f"\nSuccessfully created single {ext.upper()} file: {output_file_path}")
         return output_dir
 
     except subprocess.CalledProcessError as e:
@@ -95,10 +113,14 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
 
     if len(argv) < 1:
-        print("Usage: python make_mp4.py [directory_path]")
+        print("Usage: python make_playlist.py [directory_path] [ext: .mp4 or .mp3]")
+        print("Example (MP3): python make_playlist.py /mnt/d/Music/Alfred\\ Cortot .mp3")
         return 1
 
-    generate_mp4(argv[0])
+    target_dir = argv[0]
+    ext = argv[1] if len(argv) > 1 else ".mp4"
+
+    generate_media(target_dir, ext=ext)
     return 0
 
 
