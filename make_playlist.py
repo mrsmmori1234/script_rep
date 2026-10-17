@@ -1,127 +1,88 @@
+#!/usr/bin/env python3
+import argparse
 import os
 import random
 import sys
-import subprocess
-import tempfile
-from datetime import datetime as dt
+import urllib.parse
+import xml.etree.ElementTree as ET
 
 
-def get_output_prefix(target_dir):
-    """ターゲットディレクトリのパスから、適切な出力ファイル名用のプレフィックスを取得する。"""
-    normalized_path = os.path.normpath(target_dir)
-    folder_name = os.path.basename(normalized_path)
+def generate_xspf(target_dir, shuffle=False, output_dir="/mnt/d/Youtube"):
+    abs_target = os.path.abspath(target_dir)
 
-    if folder_name.lower() == "shorts":
-        parent_dir = os.path.dirname(normalized_path)
-        return os.path.basename(parent_dir)
-
-    return folder_name
-
-
-def generate_media(target_dir, output_dir="/mnt/d/Youtube", ext=".mp4"):
-    """
-    指定したディレクトリ（およびサブディレクトリ）から指定された拡張子のファイルを
-    再帰的に探索してシャッフル・結合し、1つのファイルとして出力する関数
-    """
-    ext = ext.lower()
-    if not ext.startswith("."):
-        ext = "." + ext
-
-    if not os.path.isdir(target_dir):
-        print(f"Error: Directory '{target_dir}' not found.")
+    if not os.path.isdir(abs_target):
+        print(f"Error: {abs_target} is not a directory.")
         return None
 
-    # os.walk を使ってサブディレクトリも含めてファイルを再帰的に収集する
-    media_files = []
-    for root, dirs, files in os.walk(target_dir):
-        for file in files:
-            if file.lower().endswith(ext):
-                full_path = os.path.abspath(os.path.join(root, file))
-                media_files.append(full_path)
-
+    media_files = [f for f in sorted(os.listdir(abs_target)) if f.lower().endswith((".mp3", ".mp4"))]
     if not media_files:
-        print(f"No {ext} files found in the directory or subdirectories.")
+        print("No media files found.")
         return None
 
-    # シャッフル処理
-    rng = random.SystemRandom()
-    rng.shuffle(media_files)
-    rng.shuffle(media_files)
+    if shuffle:
+        rng = random.SystemRandom()
+        rng.shuffle(media_files)
 
-    print(f"Found {len(media_files)} {ext} files (including subdirectories). Concatenating into a single file with ffmpeg...")
+    # --- ここから名前判定の修正 ---
+    # 末尾のディレクトリ名を取得
+    last_dir = os.path.basename(os.path.normpath(abs_target))
+    
+    if last_dir == "Shorts":
+        # 1つ上の親ディレクトリのパスから名前を取得
+        parent_dir = os.path.dirname(os.path.normpath(abs_target))
+        playlist_name = os.path.basename(parent_dir)
+    else:
+        playlist_name = last_dir
+    # --- ここまで ---
 
-    prefix = get_output_prefix(target_dir)
-    os.makedirs(output_dir, exist_ok=True)
+    playlist = ET.Element("playlist", version="1", xmlns="http://xspf.org/ns/0/")
+    playlist.set("xmlns:vlc", "http://www.videolan.org/vlc/playlist/ns/0/")
 
-    # 出力ファイル名を1つのファイル用に固定（例: Alfred Cortot.mp3）
-    output_file_path = os.path.join(output_dir, f"{prefix}{ext}")
+    # 取得した playlist_name をタイトルに設定
+    ET.SubElement(playlist, "title").text = playlist_name
+    track_list = ET.SubElement(playlist, "trackList")
+    extension = ET.SubElement(playlist, "extension", application="http://www.videolan.org/vlc/playlist/0")
 
-    # 一時テキストファイルを作成して結合リストを書き込む
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
-        list_file_path = f.name
-        for file_path in media_files:
-            escaped_path = file_path.replace("'", "'\\''")
-            f.write(f"file '{escaped_path}'\n")
+    for i, filename in enumerate(media_files):
+        full_path = os.path.join(abs_target, filename)
+
+        if full_path.startswith("/mnt/"):
+            parts = full_path.split("/")
+            drive = parts[2].upper()
+            win_path = f"{drive}:/" + "/".join(parts[3:])
+            loc_text = "file:///" + urllib.parse.quote(win_path, safe=":/")
+        else:
+            loc_text = "file://" + urllib.parse.quote(full_path)
+
+        track = ET.SubElement(track_list, "track")
+        ET.SubElement(track, "location").text = loc_text
+        ET.SubElement(track, "title").text = filename
+
+        track_ext = ET.SubElement(track, "extension", application="http://www.videolan.org/vlc/playlist/0")
+        ET.SubElement(track_ext, "vlc:id").text = str(i)
+        ET.SubElement(extension, "vlc:item", tid=str(i))
+
+    # 取得した playlist_name を出力ファイル名に設定
+    output_filename = os.path.join(output_dir, f"{playlist_name}.xspf")
+    tree = ET.ElementTree(playlist)
+    ET.indent(tree, space="    ")
 
     try:
-        # 拡張子に応じたffmpegコマンド（分割せず1つに出力）
-        if ext == ".mp3":
-            ffmpeg_cmd = [
-                "ffmpeg",
-                "-y",
-                "-fflags", "+genpts",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", list_file_path,
-                "-vn",                           # 映像ストリームを無視（音声のみ）
-                "-c:a", "copy",                  # 再エンコードなしで高速コピー
-                "-avoid_negative_ts", "make_zero",
-                output_file_path
-            ]
-        else:
-            ffmpeg_cmd = [
-                "ffmpeg",
-                "-y",
-                "-fflags", "+genpts",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", list_file_path,
-                "-c", "copy",
-                "-avoid_negative_ts", "make_zero",
-                output_file_path
-            ]
-
-        result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
-
-        if result.returncode != 0:
-            print(f"Error executing ffmpeg:\n{result.stderr}")
-            return None
-
-        print(f"\nSuccessfully created single {ext.upper()} file: {output_file_path}")
-        return output_dir
-
-    except subprocess.CalledProcessError as e:
-        print(f"\nAn error occurred during ffmpeg execution: {e}")
+        tree.write(output_filename, encoding="utf-8", xml_declaration=True)
+        print(f"Playlist created for Windows VLC: {output_filename}")
+        return output_filename
+    except IOError:
+        print(f"Error: Could not write to {output_filename}. The file might be locked by another application.")
         return None
-    finally:
-        # 一時ファイルの削除
-        if os.path.exists(list_file_path):
-            os.remove(list_file_path)
 
 
 def main(argv=None):
-    argv = sys.argv[1:] if argv is None else argv
+    parser = argparse.ArgumentParser(description="Generate an XSPF playlist from a directory.")
+    parser.add_argument("directory", help="The directory containing media files.")
+    parser.add_argument("-r", "--random", action="store_true", help="Shuffle the playlist order.")
 
-    if len(argv) < 1:
-        print("Usage: python make_playlist.py [directory_path] [ext: .mp4 or .mp3]")
-        print("Example (MP3): python make_playlist.py /mnt/d/Music/Alfred\\ Cortot .mp3")
-        return 1
-
-    target_dir = argv[0]
-    ext = argv[1] if len(argv) > 1 else ".mp4"
-
-    generate_media(target_dir, ext=ext)
-    return 0
+    args = parser.parse_args(argv)
+    return 0 if generate_xspf(args.directory, shuffle=args.random) else 1
 
 
 if __name__ == "__main__":
