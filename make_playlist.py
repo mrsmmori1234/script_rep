@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/init/env python3
 import argparse
 import os
 import random
@@ -7,7 +7,7 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 
 # 無視するフォルダ名（大文字小文字無視）
-IGNORE_DIRS = {"old", "archive"}
+IGNORE_DIRS = {"old", "archive", "shorts"}
 
 
 def get_target_media_files(folder_path):
@@ -43,7 +43,7 @@ def generate_playlist_for_category(category_dir, output_dir="/mnt/d/Youtube", sh
     # 1. フォルダ名直下のファイルを集める
     all_media_files.extend(get_target_media_files(abs_category))
 
-    # 2. Shorts フォルダ直下のファイルがあれば集める（Shortsフォルダ自体が ignore 対象でない場合）
+    # 2. Shorts フォルダ直下のファイルがあれば集める
     shorts_dir = os.path.join(abs_category, "Shorts")
     if os.path.isdir(shorts_dir):
         all_media_files.extend(get_target_media_files(shorts_dir))
@@ -109,6 +109,7 @@ def main(argv=None):
 
     args = parser.parse_args(argv)
     root_dir = os.path.abspath(args.directory)
+    output_dir = os.path.abspath(args.output)
 
     if not os.path.isdir(root_dir):
         print(f"エラー: {root_dir} は有効なディレクトリではありません。")
@@ -119,7 +120,6 @@ def main(argv=None):
     success_count = 0
     folder_count = 0
 
-    # ルートディレクトリ直下のフォルダ（例: Mind_fullness など）だけを対象にする
     try:
         entries = sorted(os.listdir(root_dir))
     except OSError as e:
@@ -128,16 +128,22 @@ def main(argv=None):
 
     for entry in entries:
         sub_path = os.path.join(root_dir, entry)
-        
-        # ディレクトリであり、かつ old / archive でなければ処理対象とする
-        if os.path.isdir(sub_path):
-            if entry.lower() in IGNORE_DIRS:
-                continue
 
-            folder_count += 1
-            res = generate_playlist_for_category(sub_path, output_dir=args.output, shuffle=args.random)
-            if res:
-                success_count += 1
+        # ディレクトリでない、または無視リストに含まれる、あるいは出力先フォルダ自体である場合はスキップ
+        if not os.path.isdir(sub_path):
+            continue
+        
+        if entry.lower() in IGNORE_DIRS:
+            continue
+            
+        # 出力先ディレクトリが root_dir と同じ階層にある場合、それをカテゴリとして誤認しないように除外
+        if os.path.samefile(sub_path, output_dir):
+            continue
+
+        folder_count += 1
+        res = generate_playlist_for_category(sub_path, output_dir=args.output, shuffle=args.random)
+        if res:
+            success_count += 1
 
     print(f"\n=== 処理完了: 対象フォルダ数 {folder_count} / 作成プレイリスト数 {success_count} ===")
     return 0
